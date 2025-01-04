@@ -8,6 +8,10 @@ const swaggerJsdoc = require('swagger-jsdoc');
 const app = express();
 const port = process.env.PORT || 5000;
 
+// Increase payload size limits
+app.use(bodyParser.json({ limit: '50mb' }));
+app.use(bodyParser.urlencoded({ limit: '50mb', extended: true }));
+
 // Swagger definition
 const swaggerOptions = {
     definition: {
@@ -129,14 +133,14 @@ app.post('/api3/send-message', async (req, res) => {
  *         description: Server error
  */
 app.post('/api3/analyze-image', async (req, res) => {
-    const { base64Image, prompt } = req.body;
+    const { image, prompt } = req.body;
 
     const messages = [
         {
             role: 'user',
             content: [
                 { type: 'text', text: prompt },
-                { type: 'image_url', image_url: { url: `data:image/jpeg;base64,${base64Image}` } }
+                { type: 'image_url', image_url: { url: `data:image/jpeg;base64,${image}` } }
             ]
         }
     ];
