@@ -19,7 +19,7 @@ const swaggerOptions = {
         },
         servers: [
             {
-                url: `http://localhost:${port}`,
+                url: '/api3',
                 description: 'Development server',
             },
         ],
@@ -28,7 +28,8 @@ const swaggerOptions = {
 };
 
 const swaggerSpec = swaggerJsdoc(swaggerOptions);
-app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec));
+app.use('/api3', express.static('public'));
+app.use('/api3/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec));
 
 app.use(bodyParser.json());
 
@@ -63,7 +64,7 @@ app.use(bodyParser.json());
  *       500:
  *         description: Server error
  */
-app.post('/send-message', async (req, res) => {
+app.post('/api3/send-message', async (req, res) => {
     const { message, systemPrompt = '' } = req.body;
 
     const messages = [
@@ -127,7 +128,7 @@ app.post('/send-message', async (req, res) => {
  *       500:
  *         description: Server error
  */
-app.post('/analyze-image', async (req, res) => {
+app.post('/api3/analyze-image', async (req, res) => {
     const { base64Image, prompt } = req.body;
 
     const messages = [
