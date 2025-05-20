@@ -1,9 +1,11 @@
 require('dotenv').config();
 const express = require('express');
-const axios = require('axios');
 const bodyParser = require('body-parser');
 const swaggerUi = require('swagger-ui-express');
 const swaggerJsdoc = require('swagger-jsdoc');
+const multer = require('multer');
+const fs = require('fs');
+const openaiService = require('./services/openaiService');
 
 const app = express();
 const port = process.env.PORT || 5000;
@@ -27,6 +29,20 @@ const swaggerOptions = {
                 description: 'Development server',
             },
         ],
+        components: {
+            schemas: {
+                Base64Image: {
+                    type: 'object',
+                    properties: {
+                        image: {
+                            type: 'string',
+                            format: 'byte',
+                            description: 'Base64 encoded image'
+                        }
+                    }
+                }
+            }
+        }
     },
     apis: ['./server.js'],
 };
@@ -36,6 +52,8 @@ app.use('/api3', express.static('public'));
 app.use('/api3/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec));
 
 app.use(bodyParser.json());
+
+const upload = multer({ dest: 'uploads/' });
 
 /**
  * @swagger
@@ -71,29 +89,9 @@ app.use(bodyParser.json());
 app.post('/api3/send-message', async (req, res) => {
     const { message, systemPrompt = '' } = req.body;
 
-    const messages = [
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: message }
-    ];
-
-    const requestBody = {
-        model: 'gpt-4o',
-        messages: messages,
-        temperature: 0.7,
-        max_tokens: 2000
-    };
-
     try {
-        const response = await axios.post(process.env.OPENAI_BASE_URL, requestBody, {
-            headers: {
-                'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`,
-                'Content-Type': 'application/json'
-            }
-        });
-
-        res.json({
-            message: response.data.choices[0].message.content
-        });
+        const response = await openaiService.sendMessage(message, systemPrompt);
+        res.json({ message: response });
     } catch (error) {
         console.error('Error:', error.response ? error.response.data : error.message);
         res.status(500).send('Error processing request');
@@ -113,10 +111,10 @@ app.post('/api3/send-message', async (req, res) => {
  *           schema:
  *             type: object
  *             required:
- *               - base64Image
+ *               - image
  *               - prompt
  *             properties:
- *               base64Image:
+ *               image:
  *                 type: string
  *                 description: Base64 encoded image data
  *               prompt:
@@ -135,40 +133,202 @@ app.post('/api3/send-message', async (req, res) => {
 app.post('/api3/analyze-image', async (req, res) => {
     const { image, prompt } = req.body;
 
-    const messages = [
-        {
-            role: 'user',
-            content: [
-                { type: 'text', text: prompt },
-                { type: 'image_url', image_url: { url: `data:image/jpeg;base64,${image}` } }
-            ]
-        }
-    ];
-
-    const requestBody = {
-        model: 'gpt-4o',
-        messages: messages,
-        max_tokens: 500
-    };
-
     try {
-        const response = await axios.post(process.env.OPENAI_BASE_URL, requestBody, {
-            headers: {
-                'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`,
-                'Content-Type': 'application/json'
-            }
-        });
-
-        res.json({
-            analysis: response.data.choices[0].message.content
-        });
+        const analysis = await openaiService.analyzeImage(image, prompt);
+        res.json({ analysis });
     } catch (error) {
         console.error('Error:', error.response ? error.response.data : error.message);
         res.status(500).send('Error processing request');
     }
 });
 
+/**
+ * @swagger
+ * /scan-books:
+ *   post:
+ *     summary: Scan books from image
+ *     description: Analyze a bookshelf image and identify all books with their details
+ *     tags:
+ *       - Books
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         multipart/form-data:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               imageFile:
+ *                 type: string
+ *                 format: binary
+ *                 description: Image file to upload and analyze
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - image
+ *             properties:
+ *               image:
+ *                 type: string
+ *                 description: Base64 encoded image data
+ *     responses:
+ *       200:
+ *         description: Successfully analyzed books
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 books:
+ *                   type: array
+ *                   items:
+ *                     type: object
+ *                     properties:
+ *                       title:
+ *                         type: string
+ *                       author:
+ *                         type: string
+ *                       isbn:
+ *                         type: string
+ *                       genre:
+ *                         type: string
+ *                       pageCount:
+ *                         type: integer
+ *       400:
+ *         description: Bad request - image data missing
+ *       500:
+ *         description: Server error
+ */
+app.post('/api3/scan-books', upload.single('imageFile'), async (req, res) => {
+    let imageBase64;
+
+    // Check if image is uploaded as a file or provided as base64
+    if (req.file) {
+        // Image uploaded as a file - convert to base64
+        const imageBuffer = fs.readFileSync(req.file.path);
+        imageBase64 = imageBuffer.toString('base64');
+
+        // Delete temporary file
+        fs.unlinkSync(req.file.path);
+    } else if (req.body.image) {
+        // Image provided as base64 string
+        imageBase64 = req.body.image;
+    } else {
+        return res.status(400).json({ error: "Image data is required. Either upload a file or provide base64 image data." });
+    }
+
+    try {
+        const books = await openaiService.scanBooks(imageBase64);
+        res.json({ books });
+    } catch (error) {
+        console.error("API error:", error.message);
+
+        if (error.status) {
+            // Custom error with status
+            return res.status(error.status).json({ error: error.message });
+        }
+
+        const status = error.response?.status || 500;
+        const errorMessage = error.response?.data?.error?.message || "Error processing image";
+
+        res.status(status).json({ error: errorMessage });
+    }
+});
+
+/**
+ * @swagger
+ * /convert-image:
+ *   post:
+ *     summary: Convert image to base64
+ *     description: Upload an image and get its base64 representation for testing other endpoints
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         multipart/form-data:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               image:
+ *                 type: string
+ *                 format: binary
+ *                 description: Image file to convert
+ *     responses:
+ *       200:
+ *         description: Successfully converted image
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 image:
+ *                   type: string
+ *                   description: Base64 encoded image
+ */
+app.post('/api3/convert-image', upload.single('image'), (req, res) => {
+    try {
+        if (!req.file) {
+            return res.status(400).json({ error: 'No image file uploaded' });
+        }
+
+        // Read the file and convert to base64
+        const imageBuffer = fs.readFileSync(req.file.path);
+        const base64Image = imageBuffer.toString('base64');
+
+        // Delete the temporary file
+        fs.unlinkSync(req.file.path);
+
+        res.json({
+            image: base64Image
+        });
+    } catch (error) {
+        console.error('Error converting image:', error);
+        res.status(500).json({ error: 'Failed to convert image' });
+    }
+});
+
+/**
+ * @swagger
+ * /health:
+ *   get:
+ *     summary: Health check endpoint
+ *     description: Check if the API server is running and get basic status information
+ *     tags:
+ *       - System
+ *     responses:
+ *       200:
+ *         description: Server is up and running
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 status:
+ *                   type: string
+ *                   example: "ok"
+ *                 version:
+ *                   type: string
+ *                   example: "1.0.0"
+ *                 uptime:
+ *                   type: number
+ *                   description: Server uptime in seconds
+ *                 timestamp:
+ *                   type: string
+ *                   format: date-time
+ *                   description: Current server time
+ *                 environment:
+ *                   type: string
+ *                   example: "development"
+ */
+app.get('/api3/health', (req, res) => {
+    res.json({
+        status: 'ok',
+        version: '1.0.0',
+        uptime: process.uptime(),
+        timestamp: new Date().toISOString(),
+        environment: process.env.NODE_ENV || 'development'
+    });
+});
+
 app.listen(port, () => {
     console.log(`Server running at http://localhost:${port}`);
-    console.log(`Swagger documentation available at http://localhost:${port}/api-docs`);
+    console.log(`Swagger documentation available at http://localhost:${port}/api3/api-docs`);
 }); 
