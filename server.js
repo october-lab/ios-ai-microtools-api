@@ -287,6 +287,88 @@ app.post('/api3/convert-image', upload.single('image'), (req, res) => {
 
 /**
  * @swagger
+ * /extract-book-titles:
+ *   post:
+ *     summary: Extract only book titles from an image
+ *     description: Analyze a bookshelf image and extract just the titles (faster than full book scanning)
+ *     tags:
+ *       - Books
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         multipart/form-data:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               imageFile:
+ *                 type: string
+ *                 format: binary
+ *                 description: Image file to upload and analyze
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - image
+ *             properties:
+ *               image:
+ *                 type: string
+ *                 description: Base64 encoded image data
+ *     responses:
+ *       200:
+ *         description: Successfully extracted book titles
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 titles:
+ *                   type: array
+ *                   items:
+ *                     type: string
+ *                   description: List of book titles
+ *       400:
+ *         description: Bad request - image data missing
+ *       500:
+ *         description: Server error
+ */
+app.post('/api3/extract-book-titles', upload.single('imageFile'), async (req, res) => {
+    let imageBase64;
+
+    // Check if image is uploaded as a file or provided as base64
+    if (req.file) {
+        // Image uploaded as a file - convert to base64
+        const imageBuffer = fs.readFileSync(req.file.path);
+        imageBase64 = imageBuffer.toString('base64');
+
+        // Delete temporary file
+        fs.unlinkSync(req.file.path);
+    } else if (req.body.image) {
+        // Image provided as base64 string
+        imageBase64 = req.body.image;
+    } else {
+        return res.status(400).json({ error: "Image data is required. Either upload a file or provide base64 image data." });
+    }
+
+    try {
+        const titles = await openaiService.extractBookTitles(imageBase64);
+        res.json({ titles });
+    } catch (error) {
+        console.error("API error:", error.message);
+
+        if (error.status) {
+            // Custom error with status
+            return res.status(error.status).json({ error: error.message });
+        }
+
+        const status = error.response?.status || 500;
+        const errorMessage = error.response?.data?.error?.message || "Error processing image";
+
+        res.status(status).json({ error: errorMessage });
+    }
+});
+
+/**
+ * @swagger
  * /health:
  *   get:
  *     summary: Health check endpoint
@@ -326,6 +408,76 @@ app.get('/api3/health', (req, res) => {
         timestamp: new Date().toISOString(),
         environment: process.env.NODE_ENV || 'development'
     });
+});
+
+/**
+ * @swagger
+ * /compress-image:
+ *   post:
+ *     summary: Compress an image and return stats
+ *     description: Upload an image, compress it, and get compression statistics
+ *     tags:
+ *       - Utility
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         multipart/form-data:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               image:
+ *                 type: string
+ *                 format: binary
+ *                 description: Image file to compress
+ *     responses:
+ *       200:
+ *         description: Compression statistics
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 originalSize:
+ *                   type: number
+ *                   description: Original size in bytes
+ *                 compressedSize:
+ *                   type: number
+ *                   description: Compressed size in bytes
+ *                 savingsPercent:
+ *                   type: number
+ *                   description: Percentage of size reduction
+ */
+app.post('/api3/compress-image', upload.single('image'), async (req, res) => {
+    try {
+        if (!req.file) {
+            return res.status(400).json({ error: 'No image file uploaded' });
+        }
+
+        // Read the file and convert to base64
+        const imageBuffer = fs.readFileSync(req.file.path);
+        const base64Image = imageBuffer.toString('base64');
+        const originalSize = base64Image.length;
+
+        // Compress the image
+        const compressedImage = await openaiService.compressImage(base64Image);
+        const compressedSize = compressedImage.length;
+
+        // Calculate savings
+        const savingsPercent = ((originalSize - compressedSize) / originalSize * 100).toFixed(2);
+
+        // Delete the temporary file
+        fs.unlinkSync(req.file.path);
+
+        res.json({
+            originalSize,
+            compressedSize,
+            savingsPercent: `${savingsPercent}%`,
+            message: `Image compressed from ${(originalSize / 1024).toFixed(2)}KB to ${(compressedSize / 1024).toFixed(2)}KB (${savingsPercent}% reduction)`
+        });
+    } catch (error) {
+        console.error('Error compressing image:', error);
+        res.status(500).json({ error: 'Failed to compress image' });
+    }
 });
 
 app.listen(port, () => {
