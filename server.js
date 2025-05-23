@@ -6,9 +6,31 @@ const swaggerJsdoc = require('swagger-jsdoc');
 const multer = require('multer');
 const fs = require('fs');
 const openaiService = require('./services/openaiService');
+const googleBooksService = require('./services/googleBooksService');
 
 const app = express();
 const port = process.env.PORT || 5000;
+
+// Response time middleware
+app.use((req, res, next) => {
+    const startTime = Date.now();
+
+    // Override res.json to include time taken
+    const originalJson = res.json;
+    res.json = function (body) {
+        const endTime = Date.now();
+        const timeTaken = endTime - startTime;
+
+        // Add timeTaken to response body
+        if (body && typeof body === 'object') {
+            body.timeTaken = `${timeTaken}ms`;
+        }
+
+        return originalJson.call(this, body);
+    };
+
+    next();
+});
 
 // Increase payload size limits
 app.use(bodyParser.json({ limit: '50mb' }));
@@ -289,8 +311,8 @@ app.post('/api3/convert-image', upload.single('image'), (req, res) => {
  * @swagger
  * /extract-book-titles:
  *   post:
- *     summary: Extract only book titles from an image
- *     description: Analyze a bookshelf image and extract just the titles (faster than full book scanning)
+ *     summary: Extract book titles from an image and get book details
+ *     description: Analyze a bookshelf image, extract the titles, and fetch details from Google Books API
  *     tags:
  *       - Books
  *     requestBody:
@@ -315,17 +337,37 @@ app.post('/api3/convert-image', upload.single('image'), (req, res) => {
  *                 description: Base64 encoded image data
  *     responses:
  *       200:
- *         description: Successfully extracted book titles
+ *         description: Successfully extracted book titles and details
  *         content:
  *           application/json:
  *             schema:
  *               type: object
  *               properties:
- *                 titles:
+ *                 books:
  *                   type: array
  *                   items:
- *                     type: string
- *                   description: List of book titles
+ *                     type: object
+ *                     properties:
+ *                       title:
+ *                         type: string
+ *                       found:
+ *                         type: boolean
+ *                       authors:
+ *                         type: array
+ *                         items:
+ *                           type: string
+ *                       publishedDate:
+ *                         type: string
+ *                       description:
+ *                         type: string
+ *                       pageCount:
+ *                         type: integer
+ *                       categories:
+ *                         type: array
+ *                         items:
+ *                           type: string
+ *                       averageRating:
+ *                         type: number
  *       400:
  *         description: Bad request - image data missing
  *       500:
@@ -350,8 +392,14 @@ app.post('/api3/extract-book-titles', upload.single('imageFile'), async (req, re
     }
 
     try {
+        // First extract titles from the image
         const titles = await openaiService.extractBookTitles(imageBase64);
-        res.json({ titles });
+
+        // Then search each title on Google Books API
+        const booksPromises = titles.map(title => googleBooksService.searchBookByTitle(title));
+        const books = await Promise.all(booksPromises);
+
+        res.json({ books });
     } catch (error) {
         console.error("API error:", error.message);
 
