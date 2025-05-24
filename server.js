@@ -368,6 +368,21 @@ app.post('/api3/convert-image', upload.single('image'), (req, res) => {
  *                           type: string
  *                       averageRating:
  *                         type: number
+ *                       isbn10:
+ *                         type: string
+ *                         description: ISBN-10 identifier
+ *                       isbn13:
+ *                         type: string
+ *                         description: ISBN-13 identifier
+ *                       imageLinks:
+ *                         type: object
+ *                         properties:
+ *                           thumbnail:
+ *                             type: string
+ *                             description: URL to book thumbnail
+ *                       previewLink:
+ *                         type: string
+ *                         description: URL to book preview
  *       400:
  *         description: Bad request - image data missing
  *       500:

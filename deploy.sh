@@ -1,5 +1,4 @@
 #!/bin/bash
-git pull
 npm install
 
 # Check if PM2 is installed globally, install if not

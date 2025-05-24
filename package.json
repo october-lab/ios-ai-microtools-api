@@ -9,7 +9,7 @@
     "deploy": "bash deploy.sh",
     "pm2:start": "pm2 start ecosystem.config.js",
     "pm2:stop": "pm2 stop ecosystem.config.js",
-    "pm2:restart": "pm2 restart ecosystem.config.js",
+    "pm2:restart": "pm2 restart ecosystem.config.js --env production",
     "pm2:logs": "pm2 logs",
     "pm2:status": "pm2 list"
   },
@@ -25,6 +25,7 @@
     "dotenv": "^16.4.7",
     "express": "^4.21.2",
     "multer": "^2.0.0",
+    "pm2": "^6.0.6",
     "sharp": "^0.34.2",
     "swagger-jsdoc": "^6.2.8",
     "swagger-ui-express": "^5.0.1"

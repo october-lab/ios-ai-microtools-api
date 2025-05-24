@@ -22,6 +22,11 @@ async function searchBookByTitle(title) {
         const book = response.data.items[0];
         const volumeInfo = book.volumeInfo || {};
 
+        // Extract ISBN numbers
+        const industryIdentifiers = volumeInfo.industryIdentifiers || [];
+        const isbn10 = industryIdentifiers.find(id => id.type === 'ISBN_10')?.identifier;
+        const isbn13 = industryIdentifiers.find(id => id.type === 'ISBN_13')?.identifier;
+
         return {
             title,
             found: true,
@@ -35,7 +40,9 @@ async function searchBookByTitle(title) {
             categories: volumeInfo.categories || [],
             averageRating: volumeInfo.averageRating,
             imageLinks: volumeInfo.imageLinks || {},
-            previewLink: volumeInfo.previewLink
+            previewLink: volumeInfo.previewLink,
+            isbn10,
+            isbn13
         };
     } catch (error) {
         console.error(`Error searching for book "${title}":`, error.message);
